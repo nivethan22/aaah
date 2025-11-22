@@ -1,4 +1,4 @@
-name: Apollo Moonlight (Hybrid - FIXED v4)
+name: Apollo Moonlight (Hybrid - FIXED v3)
 
 on:
   workflow_dispatch:
@@ -40,26 +40,6 @@ jobs:
         cmd /c deviceinstaller64.exe enableidd 1
         Write-Host "Virtual Display Activated."
 
-    # --- NEW: CRITICAL WINDOWS FIXES ---
-
-    - name: 🛡️ Disable Windows Test Mode
-      # Disabling test mode is necessary for many games (anti-cheat systems)
-      shell: powershell
-      run: |
-        bcdedit.exe /set TESTSIGNING OFF
-        Write-Host "Windows Test Mode has been disabled."
-
-    - name: 💾 Re-Install Microsoft Store and Dependencies
-      # This fixes issues with the Microsoft Store/UWP apps often being broken in cloud images
-      shell: powershell
-      run: |
-        Write-Host "Attempting to re-register Microsoft Store components..."
-        # NOTE: Using wildcards for version numbers for better compatibility
-        Add-AppxPackage -Register "C:\Program Files\WindowsApps\Microsoft.WindowsStore_*.0_x64__8wekyb3d8bbwe\AppxManifest.xml" -DisableDevelopmentMode
-        Add-AppxPackage -Register "C:\Program Files\WindowsApps\Microsoft.UI.Xaml.2.8_*.0_x64__8wekyb3d8bbwe\AppxManifest.xml" -DisableDevelopmentMode
-        Add-AppxPackage -Register "C:\Program Files\WindowsApps\Microsoft.VCLibs.140.00.UWPDesktop_*.0_x64__8wekyb3d8bbwe\AppxManifest.xml" -DisableDevelopmentMode
-        Write-Host "Microsoft Store components re-registered."
-
     # 2. ⚡ Install ZeroTier
     - name: 🌐 Install & Join ZeroTier
       env:
@@ -76,12 +56,6 @@ jobs:
         
         Write-Host "Joining Network: $Env:ZT_NET"
         & "C:\Program Files (x86)\ZeroTier\One\zerotier-cli.bat" join $Env:ZT_NET
-        Write-Host "✅ Joined. PLEASE AUTHORIZE THIS MEMBER IN YOUR ZEROTIER DASHBOARD NOW."
-        
-        Write-Host "Joining Network: $Env:ZT_NET"
-        # --- THIS IS THE FIX ---
-        # NOTE: The CLI path for choco installs is 'C:\Program Files (x86)\ZeroTier One\'
-        & "C:\Program Files (x86)\ZeroTier One\zerotier-cli.exe" join $Env:ZT_NET
         Write-Host "✅ Joined. PLEASE AUTHORIZE THIS MEMBER IN YOUR ZEROTIER DASHBOARD NOW."
 
     # 3. ☀️ Install Sunshine (FIXED SERVICE NAME & TIMING)
@@ -136,17 +110,9 @@ jobs:
         MY_PIN: ${{ inputs.pin }}
         INPUT_CMD: ${{ inputs.auth_code }}
       run: |
-        Write-Host "Launching CRD Host..."
-        if ($Env:INPUT_CMD -match '(4/[^"\s]+)') { $code = $matches[1] } else { Write-Error "CRD Auth Code not found."; exit 1 }
-
-        # Define the executable path (standard location)
-        $crd_path = "C:\Program Files (x86)\Google\Chrome Remote Desktop\Current\remoting_start_host.exe"
-        
-        # Build the argument string
-        $crd_args = "--code=$code --redirect-url=`"https://remotedesktop.google.com/_/oauthredirect`" --name=`"Apollo-Moonlight-Box`" --pin=$Env:MY_PIN"
-
-        # Use Start-Process for clean execution and isolation (Fixes ZeroTier execution conflict)
-        Start-Process -FilePath $crd_path -ArgumentList $crd_args -NoNewWindow
+        if ($Env:INPUT_CMD -match '(4/[^"\s]+)') { $code = $matches[1] }
+        $binary = Get-ChildItem "C:\Program Files (x86)\Google\Chrome Remote Desktop" -Recurse -Filter "remoting_start_host.exe" | Select-Object -ExpandProperty FullName -First 1
+        & $binary --code=$code --redirect-url="https://remotedesktop.google.com/_/oauthredirect" --name="Apollo-Moonlight-Box" --pin=$Env:MY_PIN
 
         Write-Host "----------------------------------------------------------------"
         Write-Host "🎉 SETUP COMPLETE!" -ForegroundColor Green
