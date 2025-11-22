@@ -45,74 +45,87 @@ jobs:
           Add-AppxPackage -Register "C:\Program Files\WindowsApps\Microsoft.VCLibs.140.00.UWPDesktop_*.0_x64__8wekyb3d8bbwe\AppxManifest.xml" -DisableDevelopmentMode
           Write-Host "Microsoft Store components re-registered."
       
-      # --- SETUP: SUNSHINE & ZEROTIER ---
+     # 2. ⚡ Install ZeroTier
+    - name: 🌐 Install & Join ZeroTier
+      env:
+        ZT_NET: ${{ inputs.zerotier_id }}
+      run: |
+        Write-Host "Installing ZeroTier..."
+        choco install zerotier-one -y
+        
+        Write-Host "Waiting for ZeroTier service..."
+        for ($i=0; $i -lt 20; $i++) {
+            if (Get-Service "ZeroTierOneService" -ErrorAction SilentlyContinue) { break }
+            Start-Sleep -Seconds 2
+        }
+        
+        Write-Host "Joining Network: $Env:ZT_NET"
+        & "C:\Program Files (x86)\ZeroTier\One\zerotier-cli.bat" join $Env:ZT_NET
+        Write-Host "✅ Joined. PLEASE AUTHORIZE THIS MEMBER IN YOUR ZEROTIER DASHBOARD NOW."
 
-      - name: Install and Start Sunshine Game Streaming Server
-        shell: powershell
-        run: |
-          Write-Host "Installing Sunshine..."
-          $url = "https://github.com/LizardByte/Sunshine/releases/latest/download/sunshine-windows-portable.zip"
-          $zipFile = "$env:TEMP\sunshine.zip"
-          $extractDir = "C:\sunshine"
-          
-          # Download, extract, and ensure the configuration path exists
-          Invoke-WebRequest -Uri $url -OutFile $zipFile
-          Expand-Archive -Path $zipFile -DestinationPath $extractDir -Force
-          New-Item -Path "$extractDir\config" -ItemType Directory -Force
-          
-          # Run Sunshine as a Windows Service
-          Start-Service -Name "sunshine"
-          Write-Host "Sunshine service started successfully."
+    # 3. ☀️ Install Sunshine (FIXED SERVICE NAME & TIMING)
+    - name: ☀️ Install Sunshine (Auto-Update & Fix)
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        Write-Host "Fetching latest Sunshine release..."
+        $headers = @{Authorization = "token $env:GITHUB_TOKEN"}
+        $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/LizardByte/Sunshine/releases/latest" -Headers $headers
+        $installerUrl = $latest.assets | Where-Object { $_.name -like "*Windows*installer.exe" } | Select-Object -ExpandProperty browser_download_url | Select-Object -First 1
+        
+        Write-Host "⬇️ Downloading from: $installerUrl"
+        Invoke-WebRequest -Uri $installerUrl -OutFile "sunshine_setup.exe"
+        
+        Write-Host "💿 Installing..."
+        Start-Process -FilePath ".\sunshine_setup.exe" -ArgumentList "/S" -Wait
+        
+        # --- FIX: Wait for service registration ---
+        Write-Host "Waiting for SunshineService to register..."
+        $serviceName = "SunshineService"
+        for ($i=0; $i -lt 30; $i++) {
+            $svc = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+            if ($svc) { 
+                Write-Host "Service found!" 
+                break 
+            }
+            Start-Sleep -Seconds 2
+        }
 
-      - name: Install and Join ZeroTier Network
-        shell: powershell
-        run: |
-          $networkId = "${{ github.event.inputs.ZEROTIER_NETWORK_ID }}"
-          Write-Host "Installing ZeroTier..."
-          choco install zerotier-one --confirm
-          
-          # Wait for ZeroTier service to start
-          Start-Sleep -Seconds 5
-          
-          # Join the specified network
-          & "C:\Program Files\ZeroTier\One\zerotier-cli.exe" join $networkId
-          Write-Host "Successfully joined ZeroTier network ID: $networkId"
-          
-          # Wait for the network join to stabilize and release the CLI tool process
-          Start-Sleep -Seconds 20
-          
-      # --- FINAL STEP: CRD & KEEP ALIVE (THE EXECUTION FIX) ---
-      
-      - name: 🚀 Install, Launch CRD, and Keep Alive (Using Start-Process for isolation)
-        env:
-          MY_PIN: ${{ inputs.pin }}
-          INPUT_CMD: ${{ inputs.auth_code }}
-        shell: powershell
-        run: |
-          Write-Host "Installing Chrome Remote Desktop..."
-          $crdUrl = "https://dl.google.com/edgedl/chrome-remote-desktop/chromeremotedesktophost.msi" 
-          Invoke-WebRequest -Uri $crdUrl -OutFile "crd.msi"
-          Start-Process -FilePath "msiexec.exe" -ArgumentList "/i crd.msi /qn" -Wait
-          
-          Write-Host "Launching CRD Host..."
-          # Extract the CRD authentication code from the input string
-          if ($Env:INPUT_CMD -match '(4/[^"\s]+)') { $code = $matches[1] } else { Write-Error "CRD Auth Code not found."; exit 1 }
+        # --- FIX: Start the correct service name ---
+        try {
+            Start-Service $serviceName
+            Set-Service $serviceName -StartupType Automatic
+            Write-Host "✅ Sunshine Service Started Successfully."
+        } catch {
+            Write-Error "Failed to start SunshineService. Listing all services for debug:"
+            Get-Service | Where-Object {$_.DisplayName -like "*Sunshine*"} | Format-Table -AutoSize
+            exit 1
+        }
 
-          # Define the executable path
-          $crd_path = "C:\Program Files (x86)\Google\Chrome Remote Desktop\Current\remoting_start_host.exe"
-          
-          # Build the argument string (using backticks for embedded quotes)
-          $crd_args = "--code=$code --redirect-url=`"https://remotedesktop.google.com/_/oauthredirect`" --name=`"Apollo-Moonlight-Box`" --pin=$Env:MY_PIN"
-          
-          # FIX: Use Start-Process to run the CRD host in its own clean process context.
-          Start-Process -FilePath $crd_path -ArgumentList $crd_args -NoNewWindow
-          
-          Write-Host "----------------------------------------------------------------"
-          Write-Host "🎉 CRD HOST IS RUNNING. CONNECT NOW TO COMPLETE SUNSHINE PAIRING!" -ForegroundColor Green
-          Write-Host "1. Connect via Chrome Remote Desktop: https://remotedesktop.google.com/access"
-          Write-Host "2. Inside the runner, open a browser and go to: https://localhost:47990"
-          Write-Host "3. Enter the PIN shown by Moonlight on your local PC."
-          Write-Host "----------------------------------------------------------------"
+    # 4. ⬇️ Install Chrome Remote Desktop
+    - name: ⬇️ Install Chrome Remote Desktop
+      run: |
+        $crdUrl = "https://dl.google.com/edgedl/chrome-remote-desktop/chromeremotedesktophost.msi" 
+        Invoke-WebRequest -Uri $crdUrl -OutFile "crd.msi"
+        Start-Process -FilePath "msiexec.exe" -ArgumentList "/i crd.msi /qn" -Wait
 
-          # Keep the runner alive indefinitely (up to timeout-minutes)
-          while ($true) { Start-Sleep -Seconds 60 }
+    # 5. 🚀 Launch & Keep Alive
+    - name: 🚀 Launch Services & Keep Alive
+      env:
+        MY_PIN: ${{ inputs.pin }}
+        INPUT_CMD: ${{ inputs.auth_code }}
+      run: |
+        if ($Env:INPUT_CMD -match '(4/[^"\s]+)') { $code = $matches[1] }
+        $binary = Get-ChildItem "C:\Program Files (x86)\Google\Chrome Remote Desktop" -Recurse -Filter "remoting_start_host.exe" | Select-Object -ExpandProperty FullName -First 1
+        & $binary --code=$code --redirect-url="https://remotedesktop.google.com/_/oauthredirect" --name="Apollo-Moonlight-Box" --pin=$Env:MY_PIN
+
+        Write-Host "----------------------------------------------------------------"
+        Write-Host "🎉 SETUP COMPLETE!" -ForegroundColor Green
+        Write-Host "1. Go to https://my.zerotier.com and AUTHORIZE the new member."
+        Write-Host "2. Connect via Chrome Remote Desktop: https://remotedesktop.google.com/access"
+        Write-Host "3. In the VM, open Edge and go to https://localhost:47990"
+        Write-Host "4. Set a Sunshine Username/Pass, then go to the 'PIN' tab."
+        Write-Host "5. Open Moonlight on your PC, connect to the ZeroTier IP, and pair."
+        Write-Host "----------------------------------------------------------------"
+
+        while ($true) { Start-Sleep -Seconds 60 }
