@@ -76,8 +76,9 @@ jobs:
         }
         
         Write-Host "Joining Network: $Env:ZT_NET"
-        # NOTE: The CLI path for choco installs is usually 'C:\Program Files\ZeroTier\One\zerotier-cli.exe'
-        & "C:\Program Files\ZeroTier\One\zerotier-cli.exe" join $Env:ZT_NET
+        # --- THIS IS THE FIX ---
+        # NOTE: The CLI path for choco installs is 'C:\Program Files (x86)\ZeroTier One\'
+        & "C:\Program Files (x86)\ZeroTier One\zerotier-cli.exe" join $Env:ZT_NET
         Write-Host "✅ Joined. PLEASE AUTHORIZE THIS MEMBER IN YOUR ZEROTIER DASHBOARD NOW."
 
     # 3. ☀️ Install Sunshine (FIXED SERVICE NAME & TIMING)
