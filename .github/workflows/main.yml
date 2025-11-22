@@ -1,4 +1,4 @@
-name: Windows Hybrid Gaming Runner (V7 - Execution Fix)
+name: Windows Hybrid Gaming Runner (V8 - Execution Fix 2)
 
 # This block ensures the workflow can be manually triggered with inputs
 on:
@@ -78,12 +78,12 @@ jobs:
           & "C:\Program Files\ZeroTier\One\zerotier-cli.exe" join $networkId
           Write-Host "Successfully joined ZeroTier network ID: $networkId"
           
-          # FIX: Increase wait time to ensure service handles are released
+          # Wait for the network join to stabilize and release the CLI tool process
           Start-Sleep -Seconds 20
           
       # --- FINAL STEP: CRD & KEEP ALIVE (THE EXECUTION FIX) ---
       
-      - name: 🚀 Install, Launch CRD, and Keep Alive
+      - name: 🚀 Install, Launch CRD, and Keep Alive (Using Start-Process for isolation)
         env:
           MY_PIN: ${{ inputs.pin }}
           INPUT_CMD: ${{ inputs.auth_code }}
@@ -98,12 +98,15 @@ jobs:
           # Extract the CRD authentication code from the input string
           if ($Env:INPUT_CMD -match '(4/[^"\s]+)') { $code = $matches[1] } else { Write-Error "CRD Auth Code not found."; exit 1 }
 
-          # FIX: Use a stable path for the executable instead of dynamic search
-          $binary = "C:\Program Files (x86)\Google\Chrome Remote Desktop\Current\remoting_start_host.exe"
+          # Define the executable path
+          $crd_path = "C:\Program Files (x86)\Google\Chrome Remote Desktop\Current\remoting_start_host.exe"
           
-          # Run the authentication command
-          & $binary --code=$code --redirect-url="https://remotedesktop.google.com/_/oauthredirect" --name="Apollo-Moonlight-Box" --pin=$Env:MY_PIN
-
+          # Build the argument string (using backticks for embedded quotes)
+          $crd_args = "--code=$code --redirect-url=`"https://remotedesktop.google.com/_/oauthredirect`" --name=`"Apollo-Moonlight-Box`" --pin=$Env:MY_PIN"
+          
+          # FIX: Use Start-Process to run the CRD host in its own clean process context.
+          Start-Process -FilePath $crd_path -ArgumentList $crd_args -NoNewWindow
+          
           Write-Host "----------------------------------------------------------------"
           Write-Host "🎉 CRD HOST IS RUNNING. CONNECT NOW TO COMPLETE SUNSHINE PAIRING!" -ForegroundColor Green
           Write-Host "1. Connect via Chrome Remote Desktop: https://remotedesktop.google.com/access"
