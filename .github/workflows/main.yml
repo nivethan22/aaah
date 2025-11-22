@@ -26,6 +26,26 @@ jobs:
         Start-Service "Audiosrv"
         Set-Service "Audiosrv" -StartupType Automatic
 
+        # --- NEW: CRITICAL WINDOWS FIXES ---
+
+    - name: 🛡️ Disable Windows Test Mode
+      # Disabling test mode is necessary for many games (anti-cheat systems)
+      shell: powershell
+      run: |
+        bcdedit.exe /set TESTSIGNING OFF
+        Write-Host "Windows Test Mode has been disabled."
+
+    - name: 💾 Re-Install Microsoft Store and Dependencies
+      # This fixes issues with the Microsoft Store/UWP apps often being broken in cloud images
+      shell: powershell
+      run: |
+        Write-Host "Attempting to re-register Microsoft Store components..."
+        # NOTE: Using wildcards for version numbers for better compatibility
+        Add-AppxPackage -Register "C:\Program Files\WindowsApps\Microsoft.WindowsStore_*.0_x64__8wekyb3d8bbwe\AppxManifest.xml" -DisableDevelopmentMode
+        Add-AppxPackage -Register "C:\Program Files\WindowsApps\Microsoft.UI.Xaml.2.8_*.0_x64__8wekyb3d8bbwe\AppxManifest.xml" -DisableDevelopmentMode
+        Add-AppxPackage -Register "C:\Program Files\WindowsApps\Microsoft.VCLibs.140.00.UWPDesktop_*.0_x64__8wekyb3d8bbwe\AppxManifest.xml" -DisableDevelopmentMode
+        Write-Host "Microsoft Store components re-registered."
+
         # --- Install Virtual Display Driver (usbmmidd) ---
         Write-Host "Downloading Virtual Display Driver..."
         $url = "https://www.amyuni.com/downloads/usbmmidd_v2.zip"
