@@ -1,0 +1,95 @@
+name: Windows Hybrid - Gaming Runner (v5 - CRD Fix)
+
+on:
+  workflow_dispatch:
+    inputs:
+      auth_code:
+        description: 'Google CRD PowerShell Command (PASTE FULL COMMAND HERE)'
+        required: true
+      pin:
+        description: 'CRD Pin (Default: 123456)'
+        required: false
+        default: '123456'
+      ZEROTIER_NETWORK_ID:
+        description: 'ZeroTier Network ID (e.g., 8056c2e21c32c4b8)'
+        required: true
+
+jobs:
+  run-cloud-gaming:
+    runs-on: windows-latest
+    
+    timeout-minutes: 360 # 6 hours max run time
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --- SETUP: WINDOWS & VIRTUAL DISPLAY ---
+
+      - name: Install Virtual Display Driver
+        shell: powershell
+        run: |
+          # ... (Your existing Virtual Display/Audio setup code goes here) ...
+
+      - name: Disable Windows Test Mode
+        shell: powershell
+        run: |
+          bcdedit.exe /set TESTSIGNING OFF
+          Write-Host "Windows Test Mode has been disabled."
+
+      - name: Re-Install Microsoft Store and Dependencies
+        shell: powershell
+        run: |
+          Write-Host "Attempting to re-register Microsoft Store components..."
+          Add-AppxPackage -Register "C:\Program Files\WindowsApps\Microsoft.WindowsStore_*.0_x64__8wekyb3d8bbwe\AppxManifest.xml" -DisableDevelopmentMode
+          Add-AppxPackage -Register "C:\Program Files\WindowsApps\Microsoft.UI.Xaml.2.8_*.0_x64__8wekyb3d8bbwe\AppxManifest.xml" -DisableDevelopmentMode
+          Add-AppxPackage -Register "C:\Program Files\WindowsApps\Microsoft.VCLibs.140.00.UWPDesktop_*.0_x64__8wekyb3d8bbwe\AppxManifest.xml" -DisableDevelopmentMode
+          Write-Host "Microsoft Store components re-registered."
+      
+      # --- SETUP: SUNSHINE & ZEROTIER ---
+
+      - name: Install & Start Sunshine (Automatic Latest Version)
+        # ... (Your fixed Sunshine install code goes here) ...
+        # (Ensure this step installs Sunshine as a service and starts it)
+
+      - name: Install and Join ZeroTier Network
+        shell: powershell
+        run: |
+          $networkId = "${{ github.event.inputs.ZEROTIER_NETWORK_ID }}"
+          choco install zerotier-one --confirm
+          & "C:\Program Files\ZeroTier\One\zerotier-cli.exe" join $networkId
+          Write-Host "Joined ZeroTier network."
+          Start-Sleep -Seconds 10
+          
+      # --- FINAL STEP: CRD & KEEP ALIVE (THE FIX) ---
+      
+      - name: 🚀 Install, Launch CRD, and Keep Alive (Fixes Browser Access)
+        env:
+          MY_PIN: ${{ inputs.pin }}
+          INPUT_CMD: ${{ inputs.auth_code }}
+        shell: powershell
+        run: |
+          Write-Host "Installing Chrome Remote Desktop..."
+          $crdUrl = "https://dl.google.com/edgedl/chrome-remote-desktop/chromeremotedesktophost.msi" 
+          Invoke-WebRequest -Uri $crdUrl -OutFile "crd.msi"
+          Start-Process -FilePath "msiexec.exe" -ArgumentList "/i crd.msi /qn" -Wait
+          
+          Write-Host "Launching CRD Host..."
+          # Extract the CRD authentication code from the input string
+          if ($Env:INPUT_CMD -match '(4/[^"\s]+)') { $code = $matches[1] } else { Write-Error "CRD Auth Code not found."; exit 1 }
+
+          # Find the CRD host executable
+          $binary = Get-ChildItem "C:\Program Files (x86)\Google\Chrome Remote Desktop" -Recurse -Filter "remoting_start_host.exe" | Select-Object -ExpandProperty FullName -First 1
+          
+          # Run the authentication command
+          & $binary --code=$code --redirect-url="https://remotedesktop.google.com/_/oauthredirect" --name="Apollo-Moonlight-Box" --pin=$Env:MY_PIN
+
+          Write-Host "----------------------------------------------------------------"
+          Write-Host "🎉 CRD HOST IS RUNNING. CONNECT NOW TO COMPLETE SUNSHINE PAIRING!" -ForegroundColor Green
+          Write-Host "1. Connect via Chrome Remote Desktop: https://remotedesktop.google.com/access"
+          Write-Host "2. Inside the runner, open a browser and go to: https://localhost:47990"
+          Write-Host "3. Enter the PIN shown by Moonlight on your local PC."
+          Write-Host "----------------------------------------------------------------"
+
+          # Keep the runner alive
+          while ($true) { Start-Sleep -Seconds 60 }
