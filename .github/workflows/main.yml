@@ -69,11 +69,14 @@ jobs:
         choco install zerotier-one -y
         
         Write-Host "Waiting for ZeroTier service..."
-        # NOTE: The service name for choco installs is usually 'ZeroTierOne', not 'ZeroTierOneService'
         for ($i=0; $i -lt 20; $i++) {
-            if (Get-Service "ZeroTierOne" -ErrorAction SilentlyContinue) { break }
+            if (Get-Service "ZeroTierOneService" -ErrorAction SilentlyContinue) { break }
             Start-Sleep -Seconds 2
         }
+        
+        Write-Host "Joining Network: $Env:ZT_NET"
+        & "C:\Program Files (x86)\ZeroTier\One\zerotier-cli.bat" join $Env:ZT_NET
+        Write-Host "✅ Joined. PLEASE AUTHORIZE THIS MEMBER IN YOUR ZEROTIER DASHBOARD NOW."
         
         Write-Host "Joining Network: $Env:ZT_NET"
         # --- THIS IS THE FIX ---
