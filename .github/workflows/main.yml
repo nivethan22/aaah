@@ -1,5 +1,6 @@
-name: Windows Hybrid - Gaming Runner (v5 - CRD Fix)
+name: Windows Hybrid Gaming Runner (V6 - Final Fix)
 
+# This block ensures the workflow can be manually triggered with inputs
 on:
   workflow_dispatch:
     inputs:
@@ -18,29 +19,28 @@ jobs:
   run-cloud-gaming:
     runs-on: windows-latest
     
+    # Set maximum run time for the job
     timeout-minutes: 360 # 6 hours max run time
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --- SETUP: WINDOWS & VIRTUAL DISPLAY ---
-
-      - name: Install Virtual Display Driver
-        shell: powershell
-        run: |
-          # ... (Your existing Virtual Display/Audio setup code goes here) ...
+      # --- CRITICAL WINDOWS CONFIGURATION ---
 
       - name: Disable Windows Test Mode
+        # Disabling test mode is necessary for many games (anti-cheat)
         shell: powershell
         run: |
           bcdedit.exe /set TESTSIGNING OFF
           Write-Host "Windows Test Mode has been disabled."
 
       - name: Re-Install Microsoft Store and Dependencies
+        # This fixes issues with the Microsoft Store often being broken/removed in cloud images
         shell: powershell
         run: |
           Write-Host "Attempting to re-register Microsoft Store components..."
+          # Note: The specific version numbers (*) ensure compatibility with the runner image
           Add-AppxPackage -Register "C:\Program Files\WindowsApps\Microsoft.WindowsStore_*.0_x64__8wekyb3d8bbwe\AppxManifest.xml" -DisableDevelopmentMode
           Add-AppxPackage -Register "C:\Program Files\WindowsApps\Microsoft.UI.Xaml.2.8_*.0_x64__8wekyb3d8bbwe\AppxManifest.xml" -DisableDevelopmentMode
           Add-AppxPackage -Register "C:\Program Files\WindowsApps\Microsoft.VCLibs.140.00.UWPDesktop_*.0_x64__8wekyb3d8bbwe\AppxManifest.xml" -DisableDevelopmentMode
@@ -48,22 +48,43 @@ jobs:
       
       # --- SETUP: SUNSHINE & ZEROTIER ---
 
-      - name: Install & Start Sunshine (Automatic Latest Version)
-        # ... (Your fixed Sunshine install code goes here) ...
-        # (Ensure this step installs Sunshine as a service and starts it)
+      - name: Install and Start Sunshine Game Streaming Server
+        shell: powershell
+        run: |
+          Write-Host "Installing Sunshine..."
+          $url = "https://github.com/LizardByte/Sunshine/releases/latest/download/sunshine-windows-portable.zip"
+          $zipFile = "$env:TEMP\sunshine.zip"
+          $extractDir = "C:\sunshine"
+          
+          # Download, extract, and ensure the configuration path exists
+          Invoke-WebRequest -Uri $url -OutFile $zipFile
+          Expand-Archive -Path $zipFile -DestinationPath $extractDir -Force
+          New-Item -Path "$extractDir\config" -ItemType Directory -Force
+          
+          # Run Sunshine as a Windows Service
+          Start-Service -Name "sunshine"
+          Write-Host "Sunshine service started successfully."
 
       - name: Install and Join ZeroTier Network
         shell: powershell
         run: |
           $networkId = "${{ github.event.inputs.ZEROTIER_NETWORK_ID }}"
+          Write-Host "Installing ZeroTier..."
           choco install zerotier-one --confirm
-          & "C:\Program Files\ZeroTier\One\zerotier-cli.exe" join $networkId
-          Write-Host "Joined ZeroTier network."
-          Start-Sleep -Seconds 10
           
-      # --- FINAL STEP: CRD & KEEP ALIVE (THE FIX) ---
+          # Wait for ZeroTier service to start before attempting to join
+          Start-Sleep -Seconds 5
+          
+          # Join the specified network
+          & "C:\Program Files\ZeroTier\One\zerotier-cli.exe" join $networkId
+          Write-Host "Successfully joined ZeroTier network ID: $networkId"
+          
+          # Wait for network connection to stabilize and receive an IP
+          Start-Sleep -Seconds 15
+          
+      # --- FINAL STEP: CRD & KEEP ALIVE (THE FIX FOR PIN ACCESS) ---
       
-      - name: 🚀 Install, Launch CRD, and Keep Alive (Fixes Browser Access)
+      - name: 🚀 Install, Launch CRD, and Keep Alive
         env:
           MY_PIN: ${{ inputs.pin }}
           INPUT_CMD: ${{ inputs.auth_code }}
@@ -76,12 +97,13 @@ jobs:
           
           Write-Host "Launching CRD Host..."
           # Extract the CRD authentication code from the input string
+          # This regex handles the standard '4/...' format provided by Google's PowerShell command
           if ($Env:INPUT_CMD -match '(4/[^"\s]+)') { $code = $matches[1] } else { Write-Error "CRD Auth Code not found."; exit 1 }
 
-          # Find the CRD host executable
+          # Find the CRD host executable (location can vary slightly)
           $binary = Get-ChildItem "C:\Program Files (x86)\Google\Chrome Remote Desktop" -Recurse -Filter "remoting_start_host.exe" | Select-Object -ExpandProperty FullName -First 1
           
-          # Run the authentication command
+          # Run the authentication command with the provided PIN and CODE
           & $binary --code=$code --redirect-url="https://remotedesktop.google.com/_/oauthredirect" --name="Apollo-Moonlight-Box" --pin=$Env:MY_PIN
 
           Write-Host "----------------------------------------------------------------"
@@ -91,5 +113,5 @@ jobs:
           Write-Host "3. Enter the PIN shown by Moonlight on your local PC."
           Write-Host "----------------------------------------------------------------"
 
-          # Keep the runner alive
+          # Keep the runner alive indefinitely (up to timeout-minutes)
           while ($true) { Start-Sleep -Seconds 60 }
